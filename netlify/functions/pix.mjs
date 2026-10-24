@@ -75,55 +75,60 @@ export function brcode(r) {
 
 /* ---------- visual (paleta Netti: preto, off-white, azul) ---------- */
 const CSS = `
-:root{--bg:#F7F7F6;--ink:#0B0B0C;--mut:#6b6f76;--line:#e6e6e3;--blue:#2563EB}
+:root{--bg:#F5F5F3;--ink:#0B0B0C;--mut:#7a7d84;--line:#E8E8E4;--blue:#2563EB}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:Manrope,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;min-height:100vh;display:flex;justify-content:center;padding:20px 16px 32px}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Montserrat,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;min-height:100vh;display:flex;justify-content:center;padding:22px 16px 36px;-webkit-font-smoothing:antialiased}
 .w{width:100%;max-width:420px}
-.brand{display:flex;align-items:center;gap:8px;font-weight:800;font-size:13px;letter-spacing:.04em;margin:4px 2px 18px}
-.brand i{width:10px;height:10px;border-radius:3px;background:var(--blue);display:inline-block}
-.card{background:#fff;border:1px solid var(--line);border-radius:22px;padding:24px;box-shadow:0 8px 30px rgba(11,11,12,.05)}
-h1{font-size:22px;line-height:1.2;margin:0 0 6px;letter-spacing:-.01em}
-p.s{color:var(--mut);font-size:14px;line-height:1.5;margin:0 0 18px}
-label{display:block;font-size:12px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--mut);margin:16px 0 6px}
-input[type=text],input[type=password],input[type=email],input[type=tel],input[type=number]{width:100%;padding:14px;border:1.5px solid var(--line);border-radius:12px;font:inherit;font-size:16px;background:#fff;color:var(--ink);outline:none}
-input:focus{border-color:var(--ink)}
+.brand{display:flex;align-items:center;justify-content:center;gap:10px;font-weight:600;font-size:11px;letter-spacing:.34em;margin:8px 0 24px;padding-left:.34em}
+.brand i{width:6px;height:6px;border-radius:50%;background:var(--blue);display:inline-block}
+.card{background:#fff;border:1px solid var(--line);border-radius:26px;padding:34px 26px 28px;box-shadow:0 1px 0 #fff inset,0 28px 60px -28px rgba(11,11,12,.20)}
+h1{font-size:21px;font-weight:700;line-height:1.25;margin:0 0 8px;letter-spacing:-.02em}
+p.s{color:var(--mut);font-size:13.5px;font-weight:500;line-height:1.65;margin:0 0 20px}
+label{display:block;font-size:10.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--mut);margin:20px 0 8px}
+input[type=text],input[type=password],input[type=email],input[type=tel],input[type=number]{width:100%;padding:15px 16px;border:1px solid var(--line);border-radius:14px;font:inherit;font-size:16px;font-weight:500;background:#FBFBFA;color:var(--ink);outline:none;transition:border-color .2s,box-shadow .2s,background .2s}
+input:focus{border-color:var(--ink);background:#fff;box-shadow:0 0 0 4px rgba(11,11,12,.06)}
 .tipos{display:flex;flex-wrap:wrap;gap:8px}
 .tipos input{position:absolute;opacity:0;pointer-events:none}
-.tipos label{margin:0;text-transform:none;letter-spacing:0;font-size:14px;color:var(--ink);padding:10px 14px;border:1.5px solid var(--line);border-radius:999px;font-weight:600;cursor:pointer}
+.tipos label{margin:0;text-transform:none;letter-spacing:.01em;font-size:13px;color:var(--ink);padding:10px 15px;border:1px solid var(--line);border-radius:999px;font-weight:600;cursor:pointer;background:#FBFBFA;transition:all .2s}
 .tipos input:checked+label{background:var(--ink);color:#fff;border-color:var(--ink)}
-.opt{font-weight:500;text-transform:none;letter-spacing:0}
-.btn{width:100%;padding:16px;border:0;border-radius:14px;font:inherit;font-size:16px;font-weight:800;background:var(--ink);color:#fff;margin-top:20px;cursor:pointer}
-.btn.sec{background:#fff;color:var(--ink);border:1.5px solid var(--line);margin-top:10px;font-weight:700}
-.btn.ok{background:var(--blue)}
-.err{background:#fff1f0;border:1px solid #ffd5d1;color:#9a1c10;padding:12px 14px;border-radius:12px;font-size:14px;margin-bottom:14px}
-.info{background:#f0f4ff;border:1px solid #dbe5ff;color:#1b3a8a;padding:12px 14px;border-radius:12px;font-size:13px;line-height:1.5;margin-top:14px}
+.opt{font-weight:500;text-transform:none;letter-spacing:0;opacity:.8}
+.btn{width:100%;padding:17px;border:0;border-radius:14px;font:inherit;font-size:14px;font-weight:600;letter-spacing:.04em;background:var(--ink);color:#fff;margin-top:22px;cursor:pointer;box-shadow:0 14px 26px -12px rgba(11,11,12,.55);transition:transform .15s,box-shadow .15s}
+.btn:active{transform:scale(.985);box-shadow:0 8px 16px -10px rgba(11,11,12,.55)}
+.btn.sec{background:#fff;color:var(--ink);border:1px solid var(--line);margin-top:10px;font-weight:600;box-shadow:none}
+.err{background:#fff6f5;border:1px solid #f6d3cf;color:#9a1c10;padding:13px 15px;border-radius:14px;font-size:13px;font-weight:500;margin-bottom:14px;line-height:1.5}
+.info{background:#F8F8F6;border:1px solid var(--line);color:#55585e;padding:14px 16px;border-radius:14px;font-size:12.5px;font-weight:500;line-height:1.65;margin-top:18px}
+.info a{color:var(--ink);font-weight:600}
 .pay{text-align:center}
-.tag{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--blue);background:#eef3ff;padding:6px 12px;border-radius:999px}
-.emp{color:var(--mut);font-size:14px;margin-top:14px}
-.who{font-size:26px;font-weight:800;letter-spacing:-.02em;line-height:1.15;margin:4px 0 0}
-.qr{width:210px;height:210px;margin:20px auto 6px;padding:12px;border:1px solid var(--line);border-radius:18px;background:#fff}
+.tag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--blue);border:1px solid #d9e4ff;padding:7px 14px 7px 16px;border-radius:999px}
+.emp{color:var(--mut);font-size:11px;font-weight:600;letter-spacing:.2em;text-transform:uppercase;margin-top:22px}
+.who{font-size:27px;font-weight:700;letter-spacing:-.03em;line-height:1.15;margin:8px 0 0}
+.qr{width:216px;height:216px;margin:26px auto 8px;padding:16px;border:1px solid var(--line);border-radius:22px;background:#fff;box-shadow:0 18px 36px -22px rgba(11,11,12,.25)}
 .qr svg{width:100%;height:100%;display:block}
-.k{margin-top:16px;border-top:1px solid var(--line);padding-top:16px}
-.k small{display:block;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mut)}
-.k b{display:block;font-family:"Space Mono",ui-monospace,monospace;font-size:15px;margin-top:4px;word-break:break-all}
-.how{font-size:12px;color:var(--mut);line-height:1.5;margin-top:14px}
-.foot{text-align:center;font-size:12px;color:var(--mut);margin-top:18px}
-.foot a{color:var(--mut)}
-.steps{list-style:none;counter-reset:s;padding:0;margin:18px 0 0}
-.steps li{counter-increment:s;position:relative;padding:0 0 16px 44px;font-size:15px;line-height:1.5}
-.steps li:before{content:counter(s);position:absolute;left:0;top:0;width:30px;height:30px;border-radius:50%;background:var(--ink);color:#fff;font-weight:800;font-size:14px;display:flex;align-items:center;justify-content:center}
-.steps li b{display:block;font-size:15px}.steps li span{color:var(--mut);font-size:14px}
-.lk{background:#f4f4f2;border:1px solid var(--line);border-radius:12px;padding:12px;font-family:"Space Mono",ui-monospace,monospace;font-size:13px;word-break:break-all;margin-top:10px}
-.stores{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}.stores a{font-size:13px;font-weight:700;color:var(--blue);text-decoration:none;border:1.5px solid #dbe5ff;border-radius:999px;padding:7px 12px}
-.pin-ok{font-family:"Space Mono",ui-monospace,monospace}
+.k{margin-top:24px;border-top:1px solid var(--line);padding-top:22px}
+.k small{display:block;font-size:10.5px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--mut)}
+.k b{display:block;font-size:16px;font-weight:600;letter-spacing:.03em;margin-top:8px;word-break:break-all;font-variant-numeric:tabular-nums}
+.how{font-size:12px;font-weight:500;color:var(--mut);line-height:1.65;margin-top:16px}
+.how b{color:var(--ink);font-weight:600}
+.foot{text-align:center;font-size:11.5px;font-weight:500;color:var(--mut);margin-top:22px;line-height:1.7}
+.foot a{color:var(--mut);text-decoration-color:#c9c9c4;text-underline-offset:3px}
+.steps{list-style:none;counter-reset:s;padding:0;margin:24px 0 0}
+.steps li{counter-increment:s;position:relative;padding:0 0 20px 46px;font-size:14px;line-height:1.55}
+.steps li:before{content:counter(s);position:absolute;left:0;top:-1px;width:30px;height:30px;border-radius:50%;border:1.5px solid var(--ink);color:var(--ink);font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center;background:#fff}
+.steps li:not(:last-child):after{content:"";position:absolute;left:14.5px;top:33px;bottom:5px;width:1px;background:var(--line)}
+.steps li b{display:block;font-size:14px;font-weight:700;letter-spacing:-.005em}
+.steps li span{color:var(--mut);font-size:13px;font-weight:500}
+.steps li span b{display:inline;color:var(--ink);font-weight:600;font-size:13px}
+.lk{background:#FBFBFA;border:1px solid var(--line);border-radius:14px;padding:14px 16px;font-size:12.5px;font-weight:600;letter-spacing:.01em;word-break:break-all;margin-top:2px}
+.stores{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.stores a{font-size:12px;font-weight:600;letter-spacing:.04em;color:var(--ink);text-decoration:none;border:1px solid var(--line);border-radius:999px;padding:8px 16px;background:#FBFBFA}
 `;
-const FONT = `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">`;
+const FONT = `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">`;
 const shell = (title, body, status = 200, extra = "") => new Response(
   `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><meta name="theme-color" content="#F7F7F6"><title>${esc(title)}</title>${FONT}<style>${CSS}</style></head><body><div class="w"><div class="brand"><i></i>NETTI DIGITAL</div>${body}${extra}</div></body></html>`,
   { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
 const redirect = to => new Response(null, { status: 303, headers: { location: to, "cache-control": "no-store" } });
 
-const naoEncontrada = () => shell("Placa não encontrada", `<div class="card"><h1>Placa não encontrada</h1><p class="s">Confira se o QR code está inteiro e tente de novo. Se precisar, fale com a gente.</p><a class="btn ok" style="display:block;text-align:center;text-decoration:none" href="https://wa.me/${WHATS}">Falar no WhatsApp</a></div>`, 404);
+const naoEncontrada = () => shell("Placa não encontrada", `<div class="card"><h1>Placa não encontrada</h1><p class="s">Confira se o QR code está inteiro e tente de novo. Se precisar, fale com a gente.</p><a class="btn" style="display:block;text-align:center;text-decoration:none" href="https://wa.me/${WHATS}">Falar no WhatsApp</a></div>`, 404);
 
 /* ---------- telas ---------- */
 const campos = (v = {}) => `
@@ -163,7 +168,7 @@ function telaPix(code, r) {
 ${r.empresa ? `<div class="emp">${esc(r.empresa)}</div>` : ""}
 <div class="who">${esc(r.nome)}</div>
 <div class="qr">${s}</div>
-<button class="btn ok" id="cp" data-v="${esc(cod)}">Copiar Pix copia e cola</button>
+<button class="btn" id="cp" data-v="${esc(cod)}">Copiar Pix copia e cola</button>
 <div class="how" id="how">Toque no botão, abra o app do seu banco e use a opção <b>Pix copia e cola</b>.</div>
 <div class="k"><small>${TIPOS[r.tipo]}</small><b>${esc(fmtChave(r.tipo, r.chave))}</b>
 <button class="btn sec" id="ck" data-v="${esc(r.chave)}">Copiar chave</button></div>
@@ -188,9 +193,9 @@ const telaPronto = (code, origin) => {
 <p class="s">O QR code já funciona. Para o pagamento por <b>aproximação (NFC)</b> funcionar também, faça os passos abaixo uma única vez. Leva 1 minuto.</p>
 <label style="margin-top:0">Seu link personalizado</label>
 <div class="lk">${esc(link)}</div>
-<button class="btn ok" id="cl" data-v="${esc(link)}">Copiar meu link</button>
+<button class="btn" id="cl" data-v="${esc(link)}">Copiar meu link</button>
 <ol class="steps" style="margin-top:22px">
-<li><b>Copie o link acima</b><span>Toque no botão azul.</span></li>
+<li><b>Copie o link acima</b><span>Toque em "Copiar meu link".</span></li>
 <li><b>Baixe o app NFC Tools</b><span>É grátis.</span>
 <div class="stores"><a href="https://play.google.com/store/apps/details?id=com.wakdev.wdnfc" target="_blank" rel="noopener">Android</a><a href="https://apps.apple.com/app/nfc-tools/id1252962749" target="_blank" rel="noopener">iPhone</a></div></li>
 <li><b>Abra o app e toque em Escrever</b><span>Depois em <b style="display:inline">Adicionar um registro</b> e escolha <b style="display:inline">URL / URI</b>.</span></li>
