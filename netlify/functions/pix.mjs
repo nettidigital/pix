@@ -1,311 +1,232 @@
-// Placas PIX da Netti Digital. Sistema SEPARADO das placas de avaliação (store "pix", rotas /x/*).
+// Placas Pix (QR dinâmico): o cliente escaneia a placa, cadastra a chave Pix e pronto.
+// Projeto independente: banco próprio "pix"; não usa nem altera nenhuma outra placa.
 import { getStore } from "@netlify/blobs";
 import QRCode from "qrcode";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { createHash, randomBytes } from "node:crypto";
 
-export const config = { path: ["/x/*"] };
+export const config = { path: ["/p/*", "/admin"] };
 
+const CM = 28.3465, W = 595.28, H = 841.89, CARD = 10 * CM, MX = 8, MY = 50;
+const QR_PADRAO = { cx: 0.7353, cy: 0.632, size: 0.2672 };
 const WHATS = "5511989524447";
-const store = () => getStore({ name: "pix", consistency: "strong" });
-const limpa = s => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+const AL = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+const novoCodigo = () => Array.from(randomBytes(6), b => AL[b % AL.length]).join("");
 const hash = (pin, salt) => createHash("sha256").update(salt + pin).digest("hex");
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const digits = s => String(s || "").replace(/\D/g, "");
+const limpa = s => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+const dt = t => t ? new Date(t).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "-";
 
-/* ---------- validação das chaves ---------- */
-function cpfOk(d) {
-  if (d.length !== 11 || /^(\d)\1+$/.test(d)) return false;
-  for (let t = 9; t < 11; t++) {
-    let s = 0;
-    for (let i = 0; i < t; i++) s += d[i] * (t + 1 - i);
-    if (((s * 10) % 11) % 10 != d[t]) return false;
-  }
-  return true;
-}
-function cnpjOk(d) {
-  if (d.length !== 14 || /^(\d)\1+$/.test(d)) return false;
-  const calc = n => {
-    let s = 0, p = n - 7;
-    for (let i = 0; i < n; i++) { s += d[i] * p--; if (p < 2) p = 9; }
-    const r = s % 11;
-    return r < 2 ? 0 : 11 - r;
-  };
-  return calc(12) == d[12] && calc(13) == d[13];
-}
-function validaChave(tipo, raw) {
-  raw = String(raw || "").trim();
-  if (tipo === "cpf") { const d = digits(raw); return cpfOk(d) ? { chave: d } : { erro: "CPF inválido. Confira os 11 números." }; }
-  if (tipo === "cnpj") { const d = digits(raw); return cnpjOk(d) ? { chave: d } : { erro: "CNPJ inválido. Confira os 14 números." }; }
-  if (tipo === "tel") {
-    let d = digits(raw);
-    if (d.length > 11 && d.startsWith("55")) d = d.slice(2);
-    return d.length === 10 || d.length === 11 ? { chave: "+55" + d } : { erro: "Celular inválido. Digite com DDD." };
-  }
-  if (tipo === "email") return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw) && raw.length <= 77 ? { chave: raw.toLowerCase() } : { erro: "E-mail inválido." };
-  if (tipo === "aleatoria") return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw) ? { chave: raw.toLowerCase() } : { erro: "Chave aleatória inválida. Copie e cole do seu banco." };
-  return { erro: "Escolha o tipo da chave." };
-}
-const fmtChave = (tipo, c) => {
-  if (tipo === "cpf") return c.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
-  if (tipo === "cnpj") return c.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
-  if (tipo === "tel") { const d = c.slice(3); return d.length === 11 ? d.replace(/(\d{2})(\d{5})(\d{4})/, "($1) $2-$3") : d.replace(/(\d{2})(\d{4})(\d{4})/, "($1) $2-$3"); }
-  return c;
-};
-const TIPOS = { cpf: "CPF", cnpj: "CNPJ", tel: "Celular", email: "E-mail", aleatoria: "Chave aleatória" };
+// ---------- Pix: validação da chave ----------
+const soNum = s => String(s).replace(/\D/g, "");
+const cpfOk = c => { if (c.length !== 11 || /^(\d)\1+$/.test(c)) return false;
+  for (const n of [9, 10]) { let s = 0; for (let i = 0; i < n; i++) s += +c[i] * (n + 1 - i); const d = (s * 10) % 11 % 10; if (d !== +c[n]) return false; } return true; };
+const cnpjOk = c => { if (c.length !== 14 || /^(\d)\1+$/.test(c)) return false;
+  for (const n of [12, 13]) { let s = 0, p = n - 7; for (let i = 0; i < n; i++) { s += +c[i] * p--; if (p < 2) p = 9; } const d = s % 11 < 2 ? 0 : 11 - (s % 11); if (d !== +c[n]) return false; } return true; };
+const celOk = c => c.length === 11 && +c.slice(0, 2) >= 11 && c[2] === "9";
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const NOMES = { cpf: "CPF", cnpj: "CNPJ", cel: "Celular", email: "E-mail", aleatoria: "Chave aleatória" };
 
-/* ---------- BR Code (Pix copia e cola estático) ---------- */
-const tlv = (i, v) => i + String(v.length).padStart(2, "0") + v;
-const ascii = (s, n) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Za-z0-9 ]/g, "").toUpperCase().trim().slice(0, n);
-function crc16(s) {
-  let c = 0xFFFF;
-  for (let i = 0; i < s.length; i++) {
-    c ^= s.charCodeAt(i) << 8;
-    for (let j = 0; j < 8; j++) c = c & 0x8000 ? ((c << 1) ^ 0x1021) & 0xFFFF : (c << 1) & 0xFFFF;
+function parseChave(raw, tipo) {
+  const t = String(raw || "").trim(), n = soNum(t);
+  const feito = (tp, valor) => ({ tipo: tp, valor });
+  if (tipo === "auto" || !tipo) {
+    if (t.includes("@")) tipo = "email";
+    else if (UUID.test(t)) tipo = "aleatoria";
+    else if (n.length === 14) tipo = "cnpj";
+    else if (n.length === 11) {
+      const a = cpfOk(n), b = celOk(n);
+      if (a && b) return { erro: "Essa chave pode ser CPF ou celular. Escolha o tipo da chave na lista." };
+      tipo = a ? "cpf" : b ? "cel" : "";
+    } else if (n.length === 13 && n.startsWith("55") && celOk(n.slice(2))) { tipo = "cel"; }
+    if (!tipo) return { erro: "Não reconheci essa chave. Confira se é um CPF, CNPJ, celular, e-mail ou chave aleatória válidos." };
   }
-  return c.toString(16).toUpperCase().padStart(4, "0");
+  if (tipo === "cpf") return cpfOk(n) ? feito("cpf", n) : { erro: "CPF inválido. Confira os números." };
+  if (tipo === "cnpj") return cnpjOk(n) ? feito("cnpj", n) : { erro: "CNPJ inválido. Confira os números." };
+  if (tipo === "cel") { const c = n.length === 13 && n.startsWith("55") ? n.slice(2) : n; return celOk(c) ? feito("cel", "+55" + c) : { erro: "Celular inválido. Use DDD + número, com o 9 na frente (ex.: 11 98765-4321)." }; }
+  if (tipo === "email") return EMAIL.test(t) && t.length <= 77 ? feito("email", t.toLowerCase()) : { erro: "E-mail inválido." };
+  if (tipo === "aleatoria") return UUID.test(t) ? feito("aleatoria", t.toLowerCase()) : { erro: "Chave aleatória inválida. Ela tem o formato xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx." };
+  return { erro: "Tipo de chave inválido." };
 }
-export function brcode(r) {
-  const p = tlv("00", "01") + tlv("01", "11") +
-    tlv("26", tlv("00", "br.gov.bcb.pix") + tlv("01", r.chave)) +
-    tlv("52", "0000") + tlv("53", "986") + tlv("58", "BR") +
-    tlv("59", ascii(r.nome, 25) || "RECEBEDOR") + tlv("60", ascii(r.cidade, 15) || "BRASIL") +
-    tlv("62", tlv("05", "***")) + "6304";
+const mascara = (tp, v) => tp === "cpf" ? `•••.${v.slice(3, 6)}.${v.slice(6, 9)}-••` : tp === "cnpj" ? `••.${v.slice(2, 5)}.${v.slice(5, 8)}/••••-••`
+  : tp === "cel" ? `(${v.slice(3, 5)}) •••••-${v.slice(-4)}` : tp === "email" ? v.replace(/^(.).*(@.*)$/, "$1•••$2") : v.slice(0, 8) + "••••••••";
+
+// ---------- Pix: BR Code estático (copia e cola) ----------
+const tlv = (id, v) => id + String(v.length).padStart(2, "0") + v;
+const crc16 = s => { let c = 0xFFFF; for (let i = 0; i < s.length; i++) { c ^= s.charCodeAt(i) << 8; for (let j = 0; j < 8; j++) c = (c & 0x8000) ? ((c << 1) ^ 0x1021) & 0xFFFF : (c << 1) & 0xFFFF; } return c.toString(16).toUpperCase().padStart(4, "0"); };
+const asc = (s, max) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9 ]/g, "").replace(/\s+/g, " ").trim().slice(0, max);
+function brcode(chave, nome, cidade) {
+  const p = tlv("00", "01") + tlv("01", "11") + tlv("26", tlv("00", "br.gov.bcb.pix") + tlv("01", chave)) + tlv("52", "0000") + tlv("53", "986")
+    + tlv("58", "BR") + tlv("59", asc(nome, 25).toUpperCase() || "RECEBEDOR") + tlv("60", asc(cidade, 15).toUpperCase() || "BRASIL") + tlv("62", tlv("05", "***")) + "6304";
   return p + crc16(p);
 }
 
-/* ---------- visual (paleta Netti: preto, off-white, azul) ---------- */
-const CSS = `
-:root{--bg:#F5F5F3;--ink:#0B0B0C;--mut:#7a7d84;--line:#E8E8E4;--blue:#2563EB}
-*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:Montserrat,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;min-height:100vh;display:flex;justify-content:center;padding:22px 16px 36px;-webkit-font-smoothing:antialiased}
-.w{width:100%;max-width:420px}
-.brand{display:flex;align-items:center;justify-content:center;gap:10px;font-weight:600;font-size:11px;letter-spacing:.34em;margin:8px 0 24px;padding-left:.34em}
-.brand i{width:6px;height:6px;border-radius:50%;background:var(--blue);display:inline-block}
-.card{background:#fff;border:1px solid var(--line);border-radius:26px;padding:34px 26px 28px;box-shadow:0 1px 0 #fff inset,0 28px 60px -28px rgba(11,11,12,.20)}
-h1{font-size:21px;font-weight:700;line-height:1.25;margin:0 0 8px;letter-spacing:-.02em}
-p.s{color:var(--mut);font-size:13.5px;font-weight:500;line-height:1.65;margin:0 0 20px}
-label{display:block;font-size:10.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--mut);margin:20px 0 8px}
-input[type=text],input[type=password],input[type=email],input[type=tel],input[type=number]{width:100%;padding:15px 16px;border:1px solid var(--line);border-radius:14px;font:inherit;font-size:16px;font-weight:500;background:#FBFBFA;color:var(--ink);outline:none;transition:border-color .2s,box-shadow .2s,background .2s}
-input:focus{border-color:var(--ink);background:#fff;box-shadow:0 0 0 4px rgba(11,11,12,.06)}
-.tipos{display:flex;flex-wrap:wrap;gap:8px}
-.tipos input{position:absolute;opacity:0;pointer-events:none}
-.tipos label{margin:0;text-transform:none;letter-spacing:.01em;font-size:13px;color:var(--ink);padding:10px 15px;border:1px solid var(--line);border-radius:999px;font-weight:600;cursor:pointer;background:#FBFBFA;transition:all .2s}
-.tipos input:checked+label{background:var(--ink);color:#fff;border-color:var(--ink)}
-.opt{font-weight:500;text-transform:none;letter-spacing:0;opacity:.8}
-.btn{width:100%;padding:17px;border:0;border-radius:14px;font:inherit;font-size:14px;font-weight:600;letter-spacing:.04em;background:var(--ink);color:#fff;margin-top:22px;cursor:pointer;box-shadow:0 14px 26px -12px rgba(11,11,12,.55);transition:transform .15s,box-shadow .15s}
-.btn:active{transform:scale(.985);box-shadow:0 8px 16px -10px rgba(11,11,12,.55)}
-.btn.sec{background:#fff;color:var(--ink);border:1px solid var(--line);margin-top:10px;font-weight:600;box-shadow:none}
-.err{background:#fff6f5;border:1px solid #f6d3cf;color:#9a1c10;padding:13px 15px;border-radius:14px;font-size:13px;font-weight:500;margin-bottom:14px;line-height:1.5}
-.info{background:#F8F8F6;border:1px solid var(--line);color:#55585e;padding:14px 16px;border-radius:14px;font-size:12.5px;font-weight:500;line-height:1.65;margin-top:18px}
-.info a{color:var(--ink);font-weight:600}
-.pay{text-align:center}
-.tag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--blue);border:1px solid #d9e4ff;padding:7px 14px 7px 16px;border-radius:999px}
-.emp{color:var(--mut);font-size:11px;font-weight:600;letter-spacing:.2em;text-transform:uppercase;margin-top:22px}
-.who{font-size:27px;font-weight:700;letter-spacing:-.03em;line-height:1.15;margin:8px 0 0}
-.qr{width:216px;height:216px;margin:26px auto 8px;padding:16px;border:1px solid var(--line);border-radius:22px;background:#fff;box-shadow:0 18px 36px -22px rgba(11,11,12,.25)}
-.qr svg{width:100%;height:100%;display:block}
-.k{margin-top:24px;border-top:1px solid var(--line);padding-top:22px}
-.k small{display:block;font-size:10.5px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--mut)}
-.k b{display:block;font-size:16px;font-weight:600;letter-spacing:.03em;margin-top:8px;word-break:break-all;font-variant-numeric:tabular-nums}
-.how{font-size:12px;font-weight:500;color:var(--mut);line-height:1.65;margin-top:16px}
-.how b{color:var(--ink);font-weight:600}
-.foot{text-align:center;font-size:11.5px;font-weight:500;color:var(--mut);margin-top:22px;line-height:1.7}
-.foot a{color:var(--mut);text-decoration-color:#c9c9c4;text-underline-offset:3px}
-.steps{list-style:none;counter-reset:s;padding:0;margin:24px 0 0}
-.steps li{counter-increment:s;position:relative;padding:0 0 20px 46px;font-size:14px;line-height:1.55}
-.steps li:before{content:counter(s);position:absolute;left:0;top:-1px;width:30px;height:30px;border-radius:50%;border:1.5px solid var(--ink);color:var(--ink);font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center;background:#fff}
-.steps li:not(:last-child):after{content:"";position:absolute;left:14.5px;top:33px;bottom:5px;width:1px;background:var(--line)}
-.steps li b{display:block;font-size:14px;font-weight:700;letter-spacing:-.005em}
-.steps li span{color:var(--mut);font-size:13px;font-weight:500}
-.steps li span b{display:inline;color:var(--ink);font-weight:600;font-size:13px}
-.lk{background:#FBFBFA;border:1px solid var(--line);border-radius:14px;padding:14px 16px;font-size:12.5px;font-weight:600;letter-spacing:.01em;word-break:break-all;margin-top:2px}
-.stores{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
-.stores a{font-size:12px;font-weight:600;letter-spacing:.04em;color:var(--ink);text-decoration:none;border:1px solid var(--line);border-radius:999px;padding:8px 16px;background:#FBFBFA}
-`;
-const FONT = `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">`;
-const shell = (title, body, status = 200, extra = "") => new Response(
-  `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><meta name="theme-color" content="#F7F7F6"><title>${esc(title)}</title>${FONT}<style>${CSS}</style></head><body><div class="w"><div class="brand"><i></i>NETTI DIGITAL</div>${body}${extra}</div></body></html>`,
+// ---------- visual ----------
+const CSS = `:root{--ink:#0f172a;--mut:#64748b;--acc:#16a34a;--line:#e2e8f0}*{box-sizing:border-box}
+body{margin:0;min-height:100vh;font-family:Montserrat,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:radial-gradient(1200px 600px at 50% -10%,#1e3a5f,#0b1220) fixed;color:var(--ink);display:flex;justify-content:center;padding:20px 16px 40px}
+.w{width:100%;max-width:440px}.w.wide{max-width:720px}.brand{color:#fff;font-weight:700;letter-spacing:.4px;text-align:center;margin:8px 0 18px;opacity:.92}
+.card{background:#fff;border-radius:22px;padding:26px 20px;box-shadow:0 20px 50px rgba(0,0,0,.35);margin-bottom:16px}
+.ico{width:54px;height:54px;border-radius:16px;background:#ecfdf5;display:flex;align-items:center;justify-content:center;font-size:26px;margin-bottom:12px}
+h1{font-size:23px;margin:0 0 6px;line-height:1.2;font-weight:800}h2{font-size:17px;margin:0 0 4px}.s{color:var(--mut);margin:0 0 6px;font-size:15px;line-height:1.45}.k{font-size:12px;font-weight:700;letter-spacing:1.2px;color:var(--mut);text-transform:uppercase}
+label{display:block;font-size:13px;font-weight:700;margin:16px 0 6px}.h{font-size:12.5px;color:var(--mut);margin-top:6px}
+input,select,textarea{width:100%;padding:14px;font-size:16px;border:1.5px solid var(--line);border-radius:12px;outline:none;background:#fff;color:var(--ink);font-family:inherit}
+input:focus,select:focus{border-color:var(--acc);box-shadow:0 0 0 3px rgba(22,163,74,.18)}
+.btn{display:block;width:100%;padding:15px;font-size:16px;font-weight:700;border:0;border-radius:12px;background:var(--acc);color:#fff;margin-top:14px;text-align:center;text-decoration:none;cursor:pointer;font-family:inherit}.btn.g{background:#f1f5f9;color:var(--ink)}.btn.r{background:#fee2e2;color:#b91c1c}
+.chip{display:inline-block;background:#f1f5f9;border-radius:999px;padding:5px 12px;font-weight:700;font-size:13px;letter-spacing:1.5px}
+.err{background:#fef2f2;color:#b91c1c;border-radius:12px;padding:12px 14px;margin:14px 0 0;font-size:14px;line-height:1.4}
+.box{word-break:break-all;background:#f8fafc;border:1.5px dashed var(--line);border-radius:12px;padding:12px;font-size:13px;margin:8px 0}
+.qr{display:flex;justify-content:center;margin:14px 0 4px}.qr svg{width:210px;height:210px;border:1.5px solid var(--line);border-radius:14px;padding:6px;background:#fff}
+details{margin-top:18px;font-size:14px;color:var(--mut)}summary{cursor:pointer;font-weight:700;color:var(--ink)}details ol{padding-left:20px;line-height:1.7;margin:8px 0 0}
+.f{text-align:center;color:#94a3b8;font-size:12.5px;margin-top:18px}.f a{color:#94a3b8}a.l{color:#15803d;font-weight:600}
+.row{display:flex;gap:8px;align-items:center;border-top:1px solid var(--line);padding:10px 0;font-size:14px}.row .c{flex:1;min-width:0;word-break:break-word}.row form{margin:0}.row button{width:auto;padding:9px 12px;margin:0;font-size:13px}`;
+const JS = `function copiar(id,b,t0){var t=document.getElementById(id).textContent.trim();var o=t0||b.textContent;(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){b.textContent='Copiado ✓';setTimeout(function(){b.textContent=o},2500)}).catch(function(){prompt('Copie:',t)})}`;
+const page = (body, status = 200, wide = false) => new Response(
+  `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0b1220"><meta name="robots" content="noindex"><title>Pix · Netti Digital</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&display=swap" rel="stylesheet"><style>${CSS}</style></head><body><div class="w${wide ? " wide" : ""}"><div class="brand">Netti Digital</div>${body}</div><script>${JS}</script></body></html>`,
   { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
-const redirect = to => new Response(null, { status: 303, headers: { location: to, "cache-control": "no-store" } });
 
-const naoEncontrada = () => shell("Placa não encontrada", `<div class="card"><h1>Placa não encontrada</h1><p class="s">Confira se o QR code está inteiro e tente de novo. Se precisar, fale com a gente.</p><a class="btn" style="display:block;text-align:center;text-decoration:none" href="https://wa.me/${WHATS}">Falar no WhatsApp</a></div>`, 404);
-
-/* ---------- telas ---------- */
-const campos = (v = {}) => `
-<label>Tipo da chave Pix</label>
-<div class="tipos">${Object.entries(TIPOS).map(([k, n]) => `<input type="radio" name="tipo" id="t-${k}" value="${k}" ${v.tipo === k ? "checked" : ""} required><label for="t-${k}">${n}</label>`).join("")}</div>
-<label for="chave">Chave Pix</label>
-<input id="chave" name="chave" type="text" autocomplete="off" autocapitalize="off" placeholder="Escolha o tipo acima" value="${esc(v.chaveFmt || "")}" required>
-<label for="nome">Nome de quem recebe</label>
-<input id="nome" name="nome" type="text" maxlength="25" autocomplete="off" placeholder="Como aparece no seu banco" value="${esc(v.nome || "")}" required>
-<label for="empresa">Nome da empresa <span class="opt">(opcional)</span></label>
-<input id="empresa" name="empresa" type="text" maxlength="40" autocomplete="off" placeholder="Ex: Barbearia do João" value="${esc(v.empresa || "")}">
-<label for="cidade">Cidade <span class="opt">(opcional)</span></label>
-<input id="cidade" name="cidade" type="text" maxlength="15" autocomplete="off" placeholder="Ex: Guarulhos" value="${esc(v.cidade || "")}">
-<script>
-(function(){var P={cpf:["000.000.000-00","numeric"],cnpj:["00.000.000/0000-00","numeric"],tel:["(11) 90000-0000","tel"],email:["voce@email.com","email"],aleatoria:["Cole a chave aleatória","text"]};
-var c=document.getElementById("chave");
-document.querySelectorAll('input[name=tipo]').forEach(function(r){function f(){if(!r.checked)return;c.placeholder=P[r.value][0];c.inputMode=P[r.value][1]}r.addEventListener("change",f);f()})})();
-</script>`;
-
-const telaAtivar = (code, erro = "", v = {}) => shell("Ativar placa Pix", `
-<div class="card"><h1>Ative sua placa Pix</h1>
-<p class="s">Preencha uma vez só. Depois, quem escanear a placa vê seus dados e paga na hora.</p>
-${erro ? `<div class="err">${esc(erro)}</div>` : ""}
-<form method="post" action="/x/${code}" autocomplete="off">
-${campos(v)}
-<label for="pin">Crie um PIN (4 a 6 números)</label>
-<input id="pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" placeholder="Para editar depois" required>
-<div class="info">Guarde o PIN. Ele é o que permite alterar os dados da placa depois.</div>
-<button class="btn" type="submit">Ativar minha placa</button></form></div>
-<div class="foot">Placa ${code}</div>`);
-
-function telaPix(code, r) {
-  const cod = brcode(r);
-  return QRCode.toString(cod, { type: "svg", errorCorrectionLevel: "M", margin: 0 }).then(s => shell(`Pix · ${r.nome}`, `
-<div class="card pay">
-<span class="tag">Pagamento via Pix</span>
-${r.empresa ? `<div class="emp">${esc(r.empresa)}</div>` : ""}
-<div class="who">${esc(r.nome)}</div>
-<div class="qr">${s}</div>
-<button class="btn" id="cp" data-v="${esc(cod)}">Copiar Pix copia e cola</button>
-<div class="how" id="how">Toque no botão, abra o app do seu banco e use a opção <b>Pix copia e cola</b>.</div>
-<div class="k"><small>${TIPOS[r.tipo]}</small><b>${esc(fmtChave(r.tipo, r.chave))}</b>
-<button class="btn sec" id="ck" data-v="${esc(r.chave)}">Copiar chave</button></div>
-</div>
-<div class="foot">Confira o nome do recebedor antes de confirmar o pagamento.<br><br><a href="/x/${code}/pronto">Sou o dono · ativar aproximação (NFC)</a> · <a href="/x/${code}/editar">editar dados</a></div>
-<script>
-function cp(id,msg){var b=document.getElementById(id),t=b.getAttribute("data-v"),o=b.textContent;
-function ok(){b.textContent=msg;setTimeout(function(){b.textContent=o},2200)}
-if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(t).then(ok,fb)}else fb();
-function fb(){var a=document.createElement("textarea");a.value=t;a.style.position="fixed";a.style.opacity="0";document.body.appendChild(a);a.select();try{document.execCommand("copy")}catch(e){}a.remove();ok()}}
-document.getElementById("cp").onclick=function(){cp("cp","Copiado! Cole no seu banco")};
-document.getElementById("ck").onclick=function(){cp("ck","Chave copiada")};
-</script>`));
-}
-
-
-const telaPronto = (code, origin) => {
-  const link = `${origin}/x/${code}`;
-  return shell("Placa ativada", `
-<div class="card"><span class="tag">Placa ativada</span>
-<h1 style="margin-top:14px">Tudo certo! Agora ative a aproximação</h1>
-<p class="s">O QR code já funciona. Para o pagamento por <b>aproximação (NFC)</b> funcionar também, faça os passos abaixo uma única vez. Leva 1 minuto.</p>
-<label style="margin-top:0">Seu link personalizado</label>
-<div class="lk">${esc(link)}</div>
-<button class="btn" id="cl" data-v="${esc(link)}">Copiar meu link</button>
-<ol class="steps" style="margin-top:22px">
-<li><b>Copie o link acima</b><span>Toque em "Copiar meu link".</span></li>
-<li><b>Baixe o app NFC Tools</b><span>É grátis.</span>
-<div class="stores"><a href="https://play.google.com/store/apps/details?id=com.wakdev.wdnfc" target="_blank" rel="noopener">Android</a><a href="https://apps.apple.com/app/nfc-tools/id1252962749" target="_blank" rel="noopener">iPhone</a></div></li>
-<li><b>Abra o app e toque em Escrever</b><span>Depois em <b style="display:inline">Adicionar um registro</b> e escolha <b style="display:inline">URL / URI</b>.</span></li>
-<li><b>Cole o link e confirme</b><span>Cole o link que você copiou e toque em OK.</span></li>
-<li><b>Toque em Escrever e aproxime o celular da placa</b><span>Encoste na parte de trás da placa, onde está o chip, e espere aparecer "Escrito com sucesso".</span></li>
-<li style="padding-bottom:0"><b>Teste</b><span>Aproxime o celular da placa. A sua página de pagamento deve abrir.</span></li>
-</ol>
-<div class="info">Se der erro ao escrever, mantenha o celular parado sobre a placa e tente de novo.</div>
-<a class="btn sec" style="display:block;text-align:center;text-decoration:none" href="/x/${code}">Ver minha página de pagamento</a></div>
-<div class="foot">Placa ${code}</div>
-<script>
-document.getElementById("cl").onclick=function(){var b=this,t=b.getAttribute("data-v"),o=b.textContent;
-function ok(){b.textContent="Link copiado!";setTimeout(function(){b.textContent=o},2200)}
-function fb(){var a=document.createElement("textarea");a.value=t;a.style.position="fixed";a.style.opacity="0";document.body.appendChild(a);a.select();try{document.execCommand("copy")}catch(e){}a.remove();ok()}
-if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(t).then(ok,fb)}else fb()};
-</script>`);
+const opTipo = sel => ["auto:Detectar automaticamente", "cpf:CPF", "cnpj:CNPJ", "cel:Celular", "email:E-mail", "aleatoria:Chave aleatória"].map(o => { const [v, t] = o.split(":"); return `<option value="${v}"${sel === v ? " selected" : ""}>${t}</option>`; }).join("");
+const form = (modo, codigo, msg = "", v = {}) => {
+  const at = modo === "ativar";
+  return `<div class="card"><div class="ico">💸</div><h1>${at ? "Configure sua placa Pix" : "Alterar dados do Pix"}</h1>
+<p class="s">${at ? "Leva 1 minuto. Depois disso, quem escanear sua placa vê seus dados e paga pelo Pix." : "Digite os novos dados e confirme com seu PIN."}</p>
+${msg ? `<div class="err">${esc(msg)}</div>` : ""}
+<form method="post" action="/p/${esc(codigo)}${at ? "" : "?editar=1"}" autocomplete="off"><span class="chip">PLACA ${esc(codigo)}</span>
+<label>Nome de quem recebe</label><input name="nome" value="${esc(v.nome)}" placeholder="Nome ou nome da empresa" maxlength="25" required>
+<div class="h">Aparece para quem paga, para conferir. Máximo de 25 letras.</div>
+<label>Chave Pix</label><input name="chave" value="${esc(v.chave)}" placeholder="CPF, CNPJ, celular, e-mail ou chave aleatória" autocapitalize="none" autocorrect="off" spellcheck="false" required>
+<label>Tipo da chave</label><select name="tipo">${opTipo(v.tipo || "auto")}</select>
+<label>Cidade (opcional)</label><input name="cidade" value="${esc(v.cidade)}" placeholder="Ex.: Guarulhos" maxlength="15">
+<label>${at ? "Crie um PIN (4 a 6 números)" : "Seu PIN"}</label><input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" placeholder="••••" required>
+${at ? `<div class="h">Guarde o PIN: é com ele que você altera seus dados depois.</div>` : ""}
+<button class="btn">${at ? "Salvar e ativar" : "Salvar alteração"}</button></form>
+${at ? "" : `<div class="f"><a href="https://wa.me/${WHATS}?text=${encodeURIComponent("Esqueci o PIN da placa Pix " + codigo)}">Esqueci meu PIN</a></div>`}</div>`;
 };
 
-const telaPin = (code, erro = "") => shell("Editar placa Pix", `
-<div class="card"><h1>Editar dados da placa</h1>
-<p class="s">Digite o PIN que você criou na ativação.</p>
-${erro ? `<div class="err">${esc(erro)}</div>` : ""}
-<form method="post" action="/x/${code}/editar"><input type="hidden" name="etapa" value="pin">
-<label for="pin">PIN</label>
-<input id="pin" name="pin" type="password" inputmode="numeric" maxlength="6" required autofocus>
-<button class="btn" type="submit">Continuar</button></form>
-<a class="btn sec" style="display:block;text-align:center;text-decoration:none" href="/x/${code}">Voltar</a>
-<div class="info">Esqueceu o PIN? Chame a gente no <a href="https://wa.me/${WHATS}">WhatsApp</a>.</div></div>
-<div class="foot">Placa ${code}</div>`);
+const pagar = (codigo, p) => {
+  const payload = brcode(p.chave, p.nome, p.cidade);
+  return QRCode.toString(payload, { type: "svg", margin: 0, errorCorrectionLevel: "M" }).then(svg => `<div class="card">
+<div class="k">Pagamento via Pix</div><h1 style="margin-top:4px">${esc(p.nome)}</h1><p class="s">Confira o nome do recebedor antes de pagar.</p>
+<div class="qr">${svg}</div>
+<div id="pl" style="display:none">${esc(payload)}</div>
+<button class="btn" onclick="copiar('pl',this,'Copiar Pix copia e cola')">Copiar Pix copia e cola</button>
+<div id="ch" style="display:none">${esc(p.chave)}</div>
+<div class="box" style="margin-top:14px"><b>${NOMES[p.tipo]}:</b> ${esc(mascara(p.tipo, p.chave))}</div>
+<button class="btn g" style="margin-top:0" onclick="copiar('ch',this,'Copiar chave Pix')">Copiar chave Pix</button>
+<details open><summary>Como pagar</summary><ol><li>Toque em <b>Copiar Pix copia e cola</b>.</li><li>Abra o app do seu banco e vá em <b>Pix → Copia e Cola</b>.</li><li>Cole o código, digite o valor e confirme o nome do recebedor.</li></ol></details>
+<div class="f"><a href="/p/${esc(codigo)}?editar=1">Sou o dono: alterar dados</a></div></div>`);
+};
 
-const telaEditar = (code, r, pin, erro = "") => shell("Editar placa Pix", `
-<div class="card"><h1>Editar dados da placa</h1>
-<p class="s">Altere o que precisar. A placa usa os novos dados na hora.</p>
-${erro ? `<div class="err">${esc(erro)}</div>` : ""}
-<form method="post" action="/x/${code}/editar" autocomplete="off"><input type="hidden" name="etapa" value="salvar"><input type="hidden" name="pin" value="${esc(pin)}">
-${campos({ ...r, chaveFmt: r.chaveFmt ?? fmtChave(r.tipo, r.chave) })}
-<label for="novopin">Novo PIN <span class="opt">(opcional)</span></label>
-<input id="novopin" name="novopin" type="password" inputmode="numeric" maxlength="6" placeholder="Deixe vazio para manter">
-<button class="btn" type="submit">Salvar alterações</button></form>
-<a class="btn sec" style="display:block;text-align:center;text-decoration:none" href="/x/${code}">Cancelar</a></div>`);
+const pronto = (origin, codigo, p, titulo, nfc) => `<div class="card"><div class="ico">✅</div><h1>${titulo}</h1>
+<p class="s">Quem escanear sua placa vai ver o Pix de:</p><div class="box"><b>${esc(p.nome)}</b><br>${NOMES[p.tipo]}: ${esc(mascara(p.tipo, p.chave))}</div>
+<a class="btn" href="/p/${esc(codigo)}">Ver como o cliente vê</a>
+${nfc ? `<label>Link da sua placa (para gravar no NFC)</label><div class="box" id="lk">${esc(origin)}/p/${esc(codigo)}</div>
+<button class="btn g" style="margin-top:8px" onclick="copiar('lk',this,'Copiar link da placa')">Copiar link da placa</button>
+<details open><summary>Como gravar no NFC</summary><ol><li>Abra o app <b>NFC Tools</b>.</li><li>Gravar → Adicionar registro → <b>URL</b>.</li><li>Cole o link copiado acima e toque em Gravar.</li><li>Encoste o celular na placa e teste.</li></ol></details>
+<details><summary>Dica de segurança</summary><p style="line-height:1.6">Depois de testar, você pode <b>bloquear a tag</b> no NFC Tools (menu <b>Outros → Bloquear tag</b>) para ninguém regravá-la. Atenção: bloquear é definitivo.</p></details>` : ""}
+<div class="f"><a class="l" href="/p/${esc(codigo)}?editar=1">Alterar dados depois</a></div></div>`;
 
-/* ---------- lógica ---------- */
-function lerDados(f) {
-  const tipo = String(f.get("tipo") || "");
-  const v = { tipo, chaveFmt: String(f.get("chave") || ""), nome: String(f.get("nome") || "").trim(), empresa: String(f.get("empresa") || "").trim(), cidade: String(f.get("cidade") || "").trim() };
-  if (v.nome.length < 2) return { v, erro: "Digite o nome de quem recebe." };
-  if (!ascii(v.nome, 25)) return { v, erro: "O nome precisa ter letras ou números." };
-  const k = validaChave(tipo, v.chaveFmt);
-  if (k.erro) return { v, erro: k.erro };
-  return { v, dados: { tipo, chave: k.chave, nome: v.nome.slice(0, 25), empresa: v.empresa.slice(0, 40), cidade: v.cidade.slice(0, 15) } };
+async function buildPdf(codigos, origin, arteBytes, QR) {
+  const pdf = await PDFDocument.create();
+  const fonte = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const img = await pdf.embedJpg(arteBytes);
+  for (let i = 0; i < codigos.length; i += 4) {
+    const pg = pdf.addPage([W, H]);
+    codigos.slice(i, i + 4).forEach((codigo, j) => {
+      const col = j % 2, lin = Math.floor(j / 2);
+      const x = col === 0 ? MX : W - MX - CARD, y = lin === 0 ? H - MY - CARD : MY;
+      pg.drawImage(img, { x, y, width: CARD, height: CARD });
+      const qr = QRCode.create(`${origin}/p/${codigo}`, { errorCorrectionLevel: "M" });
+      const n = qr.modules.size, lado = QR.size * CARD, m = lado / n;
+      const qx = x + QR.cx * CARD - lado / 2, qy = y + (1 - QR.cy) * CARD - lado / 2;
+      for (let r = 0; r < n; r++) {
+        let k = 0;
+        while (k < n) {
+          if (!qr.modules.get(r, k)) { k++; continue; }
+          const ini = k; while (k < n && qr.modules.get(r, k)) k++;
+          pg.drawRectangle({ x: qx + ini * m, y: qy + (n - r - 1) * m, width: (k - ini) * m + 0.2, height: m + 0.2, color: rgb(0, 0, 0) });
+        }
+      }
+      const txt = `Cód.: ${codigo}`, tw = fonte.widthOfTextAtSize(txt, 12);
+      pg.drawText(txt, { x: x + (CARD - tw) / 2, y: lin === 0 ? y - 20 : y + CARD + 10, size: 12, font: fonte, color: rgb(0.15, 0.15, 0.15) });
+    });
+  }
+  return pdf.save();
 }
-const pinOk = p => /^\d{4,6}$/.test(p);
 
 export default async (req) => {
-  const u = new URL(req.url);
-  const parts = u.pathname.split("/").filter(Boolean);
-  const code = limpa(parts[1]);
-  const sub = parts[2] || "";
-  if (!code || code.length !== 6) return naoEncontrada();
-  const st = store();
-  const r = await st.get(code, { type: "json" });
-  if (!r) return naoEncontrada();
+  const u = new URL(req.url), path = u.pathname, s = getStore("pix");
 
-  /* ativação */
-  if (!r.ativa) {
-    if (req.method === "POST" && !sub) {
-      const f = await req.formData();
-      const { v, dados, erro } = lerDados(f);
-      const pin = String(f.get("pin") || "");
-      if (erro) return telaAtivar(code, erro, v);
-      if (!pinOk(pin)) return telaAtivar(code, "O PIN precisa ter de 4 a 6 números.", v);
-      const salt = randomBytes(8).toString("hex");
-      // grava só se continuar inativa (evita duas ativações simultâneas)
-      const atual = await st.get(code, { type: "json" });
-      if (atual?.ativa) return redirect(`/x/${code}`);
-      await st.setJSON(code, { ...atual, ...dados, ativa: true, salt, ph: hash(pin, salt), erros: 0, bloqueio: 0, ativada: Date.now() });
-      return redirect(`/x/${code}/pronto`);
+  // ---------- cliente / pagador ----------
+  if (path.startsWith("/p/")) {
+    const codigo = limpa(path.slice(3)), p = await s.get(codigo, { type: "json" });
+    if (!p) return page(`<div class="card"><div class="ico">🔎</div><h1>Placa não encontrada</h1><p class="s">Confira o código ou fale com a Netti Digital.</p></div>`, 404);
+    const editar = u.searchParams.has("editar");
+    if (req.method !== "POST") {
+      if (!p.ativa) return page(form("ativar", codigo));
+      return page(editar ? form("editar", codigo) : await pagar(codigo, p));
     }
-    if (sub) return redirect(`/x/${code}`);
-    return telaAtivar(code);
+    const f = await req.formData(), modo = p.ativa ? "editar" : "ativar";
+    const v = { nome: String(f.get("nome") || "").trim(), chave: String(f.get("chave") || "").trim(), tipo: String(f.get("tipo") || "auto"), cidade: String(f.get("cidade") || "").trim() };
+    const pin = String(f.get("pin") || "").trim();
+    const erro = m => page(form(modo, codigo, m, v), 400);
+    if (!asc(v.nome, 25)) return erro("Digite o nome de quem recebe.");
+    const ch = parseChave(v.chave, v.tipo); if (ch.erro) return erro(ch.erro);
+    if (!/^\d{4,6}$/.test(pin)) return erro("O PIN precisa ter de 4 a 6 números.");
+    if (modo === "editar") {
+      if (p.lock && p.lock > Date.now()) return erro("Muitas tentativas. Tente de novo em 15 minutos.");
+      if (hash(pin, p.salt) !== p.pin) {
+        p.fails = (p.fails || 0) + 1;
+        if (p.fails >= 5) { p.lock = Date.now() + 15 * 60000; p.fails = 0; }
+        await s.setJSON(codigo, p);
+        return erro("PIN incorreto.");
+      }
+      p.fails = 0;
+    } else { p.salt = randomBytes(8).toString("hex"); p.pin = hash(pin, p.salt); p.ativa = true; }
+    Object.assign(p, { nome: asc(v.nome, 25), chave: ch.valor, tipo: ch.tipo, cidade: asc(v.cidade, 15) });
+    await s.setJSON(codigo, p);
+    return page(pronto(u.origin, codigo, p, modo === "ativar" ? "Placa ativada!" : "Dados atualizados!", modo === "ativar"));
   }
 
-  /* placa ativa */
-  if (sub === "editar") {
-    if (req.method !== "POST") return telaPin(code);
-    const f = await req.formData();
-    const pin = String(f.get("pin") || "");
-    if (r.bloqueio && Date.now() < r.bloqueio) return telaPin(code, "Muitas tentativas. Tente de novo em alguns minutos.");
-    if (!pinOk(pin) || hash(pin, r.salt) !== r.ph) {
-      const erros = (r.erros || 0) + 1;
-      await st.setJSON(code, { ...r, erros: erros >= 5 ? 0 : erros, bloqueio: erros >= 5 ? Date.now() + 15 * 60 * 1000 : 0 });
-      return telaPin(code, erros >= 5 ? "Muitas tentativas. Tente de novo em 15 minutos." : "PIN incorreto.");
+  // ---------- admin ----------
+  if (path === "/admin") {
+    if (!process.env.ADMIN_PASS || req.headers.get("authorization") !== "Basic " + btoa("admin:" + process.env.ADMIN_PASS))
+      return new Response("Acesso restrito", { status: 401, headers: { "www-authenticate": 'Basic realm="admin"' } });
+    if (req.method === "POST") {
+      const f = await req.formData(), acao = f.get("acao");
+      const voltar = m => page(`<div class="card"><h1>${esc(m)}</h1><a class="btn g" href="/admin">← Voltar</a></div>`, 200, true);
+      if (acao === "resetar" || acao === "apagar") {
+        const c = limpa(f.get("codigo")), p = await s.get(c, { type: "json" });
+        if (!p) return voltar("Placa não encontrada");
+        if (acao === "apagar") { if (p.ativa) return voltar("Placa ativada não pode ser apagada. Use Resetar."); await s.delete(c); return voltar(`Placa ${c} apagada`); }
+        await s.setJSON(c, { criada: p.criada || Date.now(), ativa: false });
+        return voltar(`Placa ${c} resetada`);
+      }
+      let codigos = [];
+      if (acao === "criar") {
+        const qtd = Math.min(Math.max(parseInt(f.get("qtd")) || 0, 1), 200);
+        for (let i = 0; i < qtd; i++) { let c; do { c = novoCodigo(); } while (await s.get(c)); await s.setJSON(c, { criada: Date.now(), ativa: false }); codigos.push(c); }
+      } else {
+        for (const c of String(f.get("lista") || "").split(/[\s,;]+/).map(limpa).filter(Boolean)) if (await s.get(c)) codigos.push(c);
+        if (!codigos.length) return new Response("Nenhum código encontrado.", { status: 400 });
+      }
+      const r = await fetch(u.origin + "/arte-pix.jpg");
+      if (!r.ok) return new Response('Arte não encontrada. Suba "arte-pix.jpg" na pasta "public" do GitHub. (Os códigos já foram criados: use "Reimprimir" depois.)', { status: 500 });
+      let QR = QR_PADRAO; try { const j = await (await fetch(u.origin + "/arte-pix.json")).json(); if (j && j.size) QR = j; } catch {}
+      return new Response(await buildPdf(codigos, u.origin, new Uint8Array(await r.arrayBuffer()), QR), { headers: { "content-type": "application/pdf", "content-disposition": "inline; filename=placas-pix.pdf", "cache-control": "no-store" } });
     }
-    if (f.get("etapa") !== "salvar") {
-      if (r.erros) await st.setJSON(code, { ...r, erros: 0, bloqueio: 0 });
-      return telaEditar(code, r, pin);
-    }
-    const { v, dados, erro } = lerDados(f);
-    if (erro) return telaEditar(code, { ...r, ...v, chave: "" }, pin, erro);
-    const novo = String(f.get("novopin") || "");
-    const upd = { ...r, ...dados, erros: 0, bloqueio: 0, atualizada: Date.now() };
-    if (novo) {
-      if (!pinOk(novo)) return telaEditar(code, { ...r, ...v }, pin, "O novo PIN precisa ter de 4 a 6 números.");
-      upd.salt = randomBytes(8).toString("hex");
-      upd.ph = hash(novo, upd.salt);
-    }
-    await st.setJSON(code, upd);
-    return redirect(`/x/${code}`);
+    const { blobs } = await s.list();
+    const todos = (await Promise.all(blobs.map(async b => ({ k: b.key, p: (await s.get(b.key, { type: "json" })) || {} })))).sort((a, b) => (b.p.criada || 0) - (a.p.criada || 0));
+    const q = (u.searchParams.get("q") || "").trim().toLowerCase();
+    const lista = todos.filter(({ k, p }) => !q || k.toLowerCase().includes(q) || (p.nome || "").toLowerCase().includes(q) || (p.chave || "").toLowerCase().includes(q)).slice(0, 100);
+    const linhas = lista.map(({ k, p }) => `<div class="row"><div class="c"><b>${k}</b> · ${p.ativa ? "✅ " + esc(p.nome) : "⚪ nova"} <span class="h">${dt(p.criada)}</span>${p.ativa ? `<div class="h">${NOMES[p.tipo]}: ${esc(p.chave)}</div>` : ""}</div>
+<form method="post" action="/admin" onsubmit="return confirm('${p.ativa ? "Resetar" : "Apagar"} ${k}?')"><input type="hidden" name="acao" value="${p.ativa ? "resetar" : "apagar"}"><input type="hidden" name="codigo" value="${k}"><button class="btn r">${p.ativa ? "Resetar" : "Apagar"}</button></form></div>`).join("") || `<p class="s">Nada encontrado.</p>`;
+    return page(`<div class="card"><h1>Placas Pix</h1><p class="s">${todos.length} placas no sistema</p></div>
+<div class="card"><h2>1. Criar placas novas + PDF</h2><p class="s">Gera códigos novos e o PDF A4 (4 cards de 10x10 cm) com o QR de cada placa.</p>
+<form method="post" action="/admin" target="_blank" onsubmit="return confirm('Criar ' + this.qtd.value + ' placas novas?')"><input type="hidden" name="acao" value="criar"><label>Quantidade (múltiplo de 4 enche as folhas)</label><input name="qtd" type="number" min="1" max="200" value="4" required><button class="btn">Criar e baixar PDF</button></form></div>
+<div class="card"><h2>2. Reimprimir códigos existentes</h2><form method="post" action="/admin" target="_blank"><input type="hidden" name="acao" value="reimprimir"><label>Códigos (vírgula ou espaço)</label><textarea name="lista" rows="2" required></textarea><button class="btn g">Gerar PDF</button></form></div>
+<div class="card"><h2>3. Placas: buscar, resetar, apagar</h2><p class="s">Busque por código, nome ou chave. Resetar apaga os dados e o PIN; Apagar só vale para placas novas.</p>
+<form method="get" action="/admin"><input name="q" value="${esc(q)}" placeholder="Código, nome ou chave"><button class="btn g">Buscar</button></form>${linhas}</div>`, 200, true);
   }
-  if (sub === "pronto") return telaPronto(code, u.origin);
-  if (sub) return redirect(`/x/${code}`);
-  return telaPix(code, r);
+  return new Response("Not found", { status: 404 });
 };
