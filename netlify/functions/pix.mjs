@@ -203,6 +203,11 @@ export default async (req) => {
         await s.setJSON(c, { criada: p.criada || Date.now(), ativa: false });
         return voltar(`Placa ${c} resetada`);
       }
+      if (acao === "links") {
+        const qtd = Math.min(Math.max(parseInt(f.get("qtd")) || 1, 1), 50), ls = [];
+        for (let i = 0; i < qtd; i++) { let c; do { c = novoCodigo(); } while (await s.get(c)); await s.setJSON(c, { criada: Date.now(), ativa: false }); ls.push(`${u.origin}/p/${c}`); }
+        return page(`<div class="card"><h1>${ls.length} links criados</h1><p class="s">Cada link é uma placa nova. Quem abrir pela primeira vez configura o próprio Pix.</p><div class="box" id="lks" style="white-space:pre-line;line-height:1.9">${ls.map(esc).join("\n")}</div><button class="btn" onclick="copiar('lks',this,'Copiar todos')">Copiar todos</button><a class="btn g" href="/admin">← Voltar</a></div>`, 200, true);
+      }
       let codigos = [], direto = null;
       if (acao === "direto") {
         const ch = parseChave(String(f.get("chave") || ""), String(f.get("tipo") || "auto"));
@@ -232,6 +237,7 @@ export default async (req) => {
     return page(`<div class="card"><h1>Placas Pix</h1><p class="s">${todos.length} placas no sistema</p></div>
 <div class="card"><h2>1. Criar placas novas + PDF</h2><p class="s">Gera códigos novos e o PDF A4 (4 cards de 10x10 cm) com o QR de cada placa.</p>
 <form method="post" action="/admin" target="_blank" onsubmit="return confirm('Criar ' + this.qtd.value + ' placas novas?')"><input type="hidden" name="acao" value="criar"><label>Quantidade (múltiplo de 4 enche as folhas)</label><input name="qtd" type="number" min="1" max="200" value="4" required><button class="btn">Criar e baixar PDF</button></form></div>
+<div class="card"><h2>Gerar só links (sem PDF)</h2><p class="s">Para colar no campo de link de outra placa. Cada link vira uma página Pix.</p><form method="post" action="/admin"><input type="hidden" name="acao" value="links"><label>Quantidade</label><input name="qtd" type="number" min="1" max="50" value="5"><button class="btn">Gerar links</button></form></div>
 <div class="card"><h2>Placa com Pix direto (QR abre o banco)</h2><p class="s">O QR já é o Pix do cliente: ao escanear, o app do banco abre direto no pagamento. É fixo e não pode ser alterado depois. Use com os dados do cliente, antes de imprimir.</p>
 <form method="post" action="/admin" target="_blank"><input type="hidden" name="acao" value="direto"><label>Nome do recebedor</label><input name="nome" maxlength="25" required><label>Chave Pix</label><input name="chave" required><label>Tipo</label><select name="tipo">${opTipo("auto")}</select><label>Cidade</label><input name="cidade" maxlength="15"><label>Quantidade de cards (1 a 4)</label><input name="qtd" type="number" min="1" max="4" value="1"><button class="btn">Gerar PDF</button></form></div>
 <div class="card"><h2>2. Reimprimir códigos existentes</h2><form method="post" action="/admin" target="_blank"><input type="hidden" name="acao" value="reimprimir"><label>Códigos (vírgula ou espaço)</label><textarea name="lista" rows="2" required></textarea><button class="btn g">Gerar PDF</button></form></div>
